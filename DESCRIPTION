@@ -13,7 +13,7 @@ Description: Create sunburst charts using the ggplot2 framework.
 License: GPL
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.1
+RoxygenNote: 7.3.3
 Depends: 
     R (>= 4.0.0)
 Imports:

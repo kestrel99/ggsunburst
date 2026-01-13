@@ -106,7 +106,7 @@ sunburst_trajectory(
   category = "grade",
   missing_handling = "dropout",
   palette = "ctcae",
-  title = "Dropout Handling: Invisible Gaps",
+  title = "Dropout Handling: Gaps",
   subtitle = "Uneven outer border shows where patients dropped out"
 )
 ```
@@ -283,7 +283,7 @@ response_data <- create_example_response_trajectory(
 sunburst_trajectory(
   response_data,
   subject = "subject",
-  time = "visit",
+  time = "timepoint",
   category = "response",
   category_order = c("CR", "PR", "SD", "PD"),
   palette = c(
