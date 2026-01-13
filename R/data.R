@@ -93,6 +93,7 @@ create_example_ae_data <- function(
 #'
 #' Generate simulated longitudinal data where subjects transition between
 #' categories over time. Suitable for trajectory sunburst visualization.
+#' Supports generation of non-rectangular data with dropouts.
 #'
 #' @param n_subjects Number of subjects (default 60).
 #' @param n_timepoints Number of timepoints (default 4).
@@ -101,22 +102,37 @@ create_example_ae_data <- function(
 #' @param initial_probs Initial probability distribution across categories.
 #' @param transition_tendency How likely subjects are to change category:
 #'   "stable" (low change), "moderate", or "dynamic" (high change).
+#' @param dropout_rate Probability of a subject dropping out at each timepoint
+#'   after baseline (default 0, meaning no dropouts). Set to e.g. 0.1 for 10%
+#'   dropout rate per timepoint.
+#' @param dropout_bias How dropouts relate to category: "none" (random),
+#'   "high" (higher categories more likely to drop out), "low" (lower categories
+#'   more likely to drop out). Default "none".
 #' @param seed Random seed for reproducibility.
 #'
-#' @return A data frame with subject, visit, and grade columns.
+#' @return A data frame with subject, visit, and grade columns. If dropout_rate > 0,
+#'   the data will be non-rectangular (not all subjects have all timepoints).
 #'
 #' @export
 #'
 #' @examples
-#' # Generate trajectory data
+#' # Generate complete trajectory data
 #' traj_data <- create_example_trajectory_data(n_subjects = 50, seed = 42)
 #'
-#' # Visualize trajectories
+#' # Generate data with 15% dropout rate per timepoint
+#' dropout_data <- create_example_trajectory_data(
+#'   n_subjects = 80,
+#'   dropout_rate = 0.15,
+#'   seed = 42
+#' )
+#'
+#' # Visualize with dropout handling
 #' sunburst_trajectory(
-#'   traj_data,
+#'   dropout_data,
 #'   subject = "subject",
 #'   time = "visit",
 #'   category = "grade",
+#'   missing_handling = "dropout",
 #'   palette = "ctcae"
 #' )
 create_example_trajectory_data <- function(
@@ -126,9 +142,13 @@ create_example_trajectory_data <- function(
     categories = as.character(0:4),
     initial_probs = c(0.30, 0.35, 0.20, 0.10, 0.05),
     transition_tendency = "moderate",
+    dropout_rate = 0,
+    dropout_bias = c("none", "high", "low"),
     seed = NULL
 ) {
   if (!is.null(seed)) set.seed(seed)
+  
+  dropout_bias <- match.arg(dropout_bias)
   
   if (is.null(timepoint_names)) {
     timepoint_names <- c("Baseline", "Week 4", "Week 8", "Week 12", "Week 16", "Week 24")[1:n_timepoints]
@@ -151,12 +171,42 @@ create_example_trajectory_data <- function(
   
   for (subj in seq_len(n_subjects)) {
     grades <- character(n_timepoints)
+    dropped_out <- FALSE
+    last_timepoint <- n_timepoints
     
     # Initial category
     grades[1] <- sample(categories, 1, prob = initial_probs[1:n_cats])
     
     # Transitions for subsequent timepoints
     for (t in 2:n_timepoints) {
+      if (dropped_out) {
+        grades[t] <- NA_character_
+        next
+      }
+      
+      # Check for dropout
+      if (dropout_rate > 0) {
+        current_cat <- grades[t - 1]
+        current_idx <- which(categories == current_cat)
+        
+        # Adjust dropout probability based on bias
+        adj_dropout_rate <- dropout_rate
+        if (dropout_bias == "high") {
+          # Higher categories more likely to drop out
+          adj_dropout_rate <- dropout_rate * (1 + (current_idx - 1) / n_cats)
+        } else if (dropout_bias == "low") {
+          # Lower categories more likely to drop out
+          adj_dropout_rate <- dropout_rate * (1 + (n_cats - current_idx) / n_cats)
+        }
+        
+        if (runif(1) < adj_dropout_rate) {
+          dropped_out <- TRUE
+          last_timepoint <- t - 1
+          grades[t] <- NA_character_
+          next
+        }
+      }
+      
       current_cat <- grades[t - 1]
       current_idx <- which(categories == current_cat)
       
@@ -181,13 +231,20 @@ create_example_trajectory_data <- function(
       }
     }
     
-    results[[subj]] <- data.frame(
-      subject = paste0("SUBJ-", sprintf("%03d", subj)),
-      visit = factor(timepoint_names, levels = timepoint_names),
-      grade = grades,
-      stringsAsFactors = FALSE
-    )
+    # Create data frame - only include non-NA timepoints
+    valid_idx <- !is.na(grades)
+    if (sum(valid_idx) > 0) {
+      results[[subj]] <- data.frame(
+        subject = paste0("SUBJ-", sprintf("%03d", subj)),
+        visit = factor(timepoint_names[valid_idx], levels = timepoint_names),
+        grade = grades[valid_idx],
+        stringsAsFactors = FALSE
+      )
+    }
   }
+  
+  # Remove NULL entries (subjects with no data - shouldn't happen with baseline)
+  results <- results[!sapply(results, is.null)]
   
   do.call(rbind, results)
 }

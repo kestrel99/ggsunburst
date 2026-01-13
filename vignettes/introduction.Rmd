@@ -7,302 +7,342 @@ vignette: >
   %\VignetteEncoding{UTF-8}
 ---
 
-```{r setup, include = FALSE}
+```{r, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>",
-  fig.width = 7,
+  fig.width = 8,
   fig.height = 7
 )
 ```
 
-## Overview
-
-The `ggsunburst` package creates sunburst (multilevel pie) charts using ggplot2. Sunburst charts display hierarchical data as concentric rings, where each ring represents a level in the hierarchy or a time point.
-
-This package is particularly useful for:
-
-- **Adverse event visualization**: Track changes in AE grades over time at the individual patient level
-- **Hierarchical data**: Display nested categories like organizational structures, file systems, or taxonomies
-- **Longitudinal patterns**: Visualize how categorical variables change over time for multiple subjects
-
-## Installation
-
-```{r eval=FALSE}
-# From GitHub (once published)
-# remotes::install_github("occams/ggsunburst")
-
-# Or install from local source
-# install.packages("path/to/ggsunburst", repos = NULL, type = "source")
-```
-
-## Quick Start
-
-```{r message=FALSE}
+```{r setup}
 library(ggsunburst)
 library(ggplot2)
 ```
 
-### Basic Adverse Event Visualization
+## Overview
+ 
+The ggsunburst package creates trajectory-based sunburst visualizations showing how groups of subjects flow between categories over time. Unlike traditional sunburst charts that show hierarchical proportions at a single point in time, trajectory sunbursts reveal **longitudinal patterns** and **transitions**.
 
-The primary use case for `ggsunburst` is visualizing adverse event grades over time:
+### Key Concepts
 
-```{r}
-# Generate example AE data
-ae_data <- create_example_ae_data(n_patients = 20, seed = 42)
-head(ae_data)
+- **Inner ring** = earliest timepoint (e.g., Baseline)
+- **Outer rings** = subsequent timepoints (e.g., Week 4, Week 8, Week 12)
+- **Segment width** = number of subjects on that trajectory path
+- **Colors** = category at each timepoint
+- **Radial slices** = individual trajectory paths from center to edge
+
+## Quick Start
+
+### Generate Example Data
+
+```{r generate-data}
+# Create simulated trajectory data
+traj_data <- create_example_trajectory_data(
+  n_subjects = 80,
+  n_timepoints = 4,
+  transition_tendency = "moderate",
+  seed = 42
+)
+
+head(traj_data)
 ```
 
-Create a sunburst chart with the `sunburst_ae()` function:
+### Create Basic Trajectory Sunburst
 
-```{r}
-sunburst_ae(
-  ae_data,
-  subject = "USUBJID",
-  time = "AVISIT",
-  grade = "AETOXGR",
-  title = "Adverse Event Grades Over Time",
-  subtitle = "Individual patient trajectories"
+```{r basic-plot, fig.alt="Basic trajectory sunburst chart"}
+sunburst_trajectory(
+  traj_data,
+  subject = "subject",
+  time = "visit",
+  category = "grade",
+  palette = "ctcae",
+  title = "AE Grade Trajectories Over Time"
 )
 ```
 
-### Understanding the Chart
+## Reading the Chart
 
-In this visualization:
+To interpret a trajectory sunburst:
 
-- **Each slice** represents one patient (labeled around the outside)
-- **Each ring** represents a time point (from center outward: Screening → Week 12)
-- **Colors** indicate the AE grade at that time point (using CTCAE color scale)
+1. **Start at the center**: The innermost ring shows the distribution at the first timepoint
+2. **Move outward**: Each ring represents a subsequent timepoint
+3. **Follow a radial slice**: Any path from center to edge represents one unique trajectory
+4. **Segment width**: Wider segments = more subjects following that path
+5. **Color changes**: When colors change moving outward, subjects transitioned between categories
 
-### Sorting Options
+For example:
+- A wide green slice that stays green from center to edge = many subjects who stayed at Grade 1 throughout
+- A segment that goes green → yellow → orange = subjects whose grade worsened over time
 
-Patients can be sorted in different ways to highlight patterns:
+## Handling Missing Data (Non-Rectangular Datasets)
 
-```{r}
-# Sort by maximum grade experienced (default)
-sunburst_ae(
-  ae_data,
-  subject = "USUBJID",
-  time = "AVISIT", 
-  grade = "AETOXGR",
-  sort_by = "max_grade",
-  title = "Sorted by Maximum Grade"
+Real clinical data often has dropouts. The `missing_handling` parameter controls how incomplete data is displayed.
+
+### Create Data with Dropouts
+
+```{r dropout-data}
+dropout_data <- create_example_trajectory_data(
+  n_subjects = 100,
+  n_timepoints = 4,
+  dropout_rate = 0.25,  # 25% dropout per timepoint
+  seed = 123
+)
+
+# Check subjects per visit
+table(dropout_data$visit)
+```
+
+### Option 1: "dropout" (Default) - Invisible Gaps
+
+Discontinued subjects are drawn invisibly, preserving angular space and creating an uneven outer border that shows where dropouts occurred.
+
+```{r dropout-invisible, fig.alt="Sunburst with dropout gaps"}
+sunburst_trajectory(
+  dropout_data,
+  subject = "subject",
+  time = "visit",
+  category = "grade",
+  missing_handling = "dropout",
+  palette = "ctcae",
+  title = "Dropout Handling: Invisible Gaps",
+  subtitle = "Uneven outer border shows where patients dropped out"
 )
 ```
 
-```{r}
-# Sort by last observed grade
-sunburst_ae(
-  ae_data,
-  subject = "USUBJID",
-  time = "AVISIT",
-  grade = "AETOXGR",
-  sort_by = "last_grade",
-  title = "Sorted by Final Grade"
+### Option 2: "carry_forward" - LOCF Imputation
+
+Last Observation Carried Forward imputes missing values with the most recent observed category.
+
+```{r locf, fig.alt="Sunburst with LOCF imputation"}
+sunburst_trajectory(
+  dropout_data,
+  subject = "subject",
+  time = "visit",
+  category = "grade",
+  missing_handling = "carry_forward",
+  palette = "ctcae",
+  title = "Dropout Handling: LOCF",
+  subtitle = "Missing visits use last observed value"
 )
 ```
 
-## General Sunburst Charts
+### Option 3: "complete_only" - Exclude Incomplete
 
-For non-AE data, use the more general `sunburst()` function:
-
-### Wide Format Data
-
-When your time points or hierarchy levels are in separate columns:
-```{r}
-# Create example wide data
-set.seed(123)
-wide_data <- data.frame(
-  id = paste0("Subject_", 1:12),
-  Baseline = sample(c("Low", "Medium", "High"), 12, replace = TRUE),
-  Month_3 = sample(c("Low", "Medium", "High"), 12, replace = TRUE),
-  Month_6 = sample(c("Low", "Medium", "High"), 12, replace = TRUE),
-  Month_12 = sample(c("Low", "Medium", "High"), 12, replace = TRUE)
-)
-
-sunburst(
-  wide_data,
-  segments = "id",
-  rings = c("Baseline", "Month_3", "Month_6", "Month_12"),
-  palette = c("Low" = "#93C47D", "Medium" = "#FFD966", "High" = "#CC0000"),
-  legend_title = "Severity",
-  title = "Treatment Response Over Time"
+Only subjects with data at all timepoints are included.
+ 
+```{r complete-only, fig.alt="Sunburst with complete cases only"}
+sunburst_trajectory(
+  dropout_data,
+  subject = "subject",
+  time = "visit",
+  category = "grade",
+  missing_handling = "complete_only",
+  palette = "ctcae",
+  title = "Dropout Handling: Complete Cases Only",
+  subtitle = "Only subjects with all visits included"
 )
 ```
 
-### Long Format Data
+### Option 4: "show_missing" - Explicit Missing Category
 
-When your data is in tidy/long format:
+Missing observations shown as a separate "Missing" category.
 
-```{r}
-# Long format example
-long_data <- data.frame(
-  patient = rep(LETTERS[1:8], each = 4),
-  visit = rep(c("V1", "V2", "V3", "V4"), 8),
-  score = factor(sample(1:4, 32, replace = TRUE))
-)
+```{r show-missing, fig.alt="Sunburst with missing category"}
+# Create data with intermittent missing (not just dropouts)
+set.seed(456)
+intermittent_data <- create_example_trajectory_data(n_subjects = 60, seed = 456)
+# Remove some middle visits
+remove_idx <- sample(which(intermittent_data$visit == "Week 4"), 10)
+intermittent_data <- intermittent_data[-remove_idx, ]
 
-sunburst(
-  long_data,
-  segments = "patient",
-  rings = "visit",
-  fill = "score",
-  palette = "Blues",
-  legend_title = "Score",
-  title = "Patient Scores Across Visits"
+sunburst_trajectory(
+  intermittent_data,
+  subject = "subject",
+  time = "visit",
+  category = "grade",
+  missing_handling = "show_missing",
+  palette = "ctcae",
+  title = "Dropout Handling: Show Missing",
+  subtitle = "Missing visits shown as separate category"
 )
 ```
 
-## Customization
+## Label Customization
 
-### Color Scales
+### Label Orientation
 
-The package includes several built-in color scales:
+Control how labels are oriented within segments:
 
-```{r}
-# CTCAE grade colors (default for AE data)
-p1 <- sunburst_ae(ae_data, "USUBJID", "AVISIT", "AETOXGR",
-                   palette = "ctcae", title = "CTCAE Colors")
-p1
+- **auto** (default): Chooses best orientation based on segment shape
+- **radial**: Text reads from center outward
+- **tangential**: Text follows the arc
+- **horizontal**: Text is always horizontal
+
+```{r label-orientation, fig.alt="Label orientation options"}
+sunburst_trajectory(
+  traj_data, subject = "subject", time = "visit", category = "grade",
+  label_orientation = "radial",
+  palette = "ctcae",
+  title = "Radial Label Orientation"
+)
 ```
 
-For custom colors, pass a named vector:
+### Auto-Fit Labels
 
-```{r}
+Control automatic label sizing and filtering:
+
+```{r autofit-labels, fig.alt="Auto-fit label demonstration"}
+sunburst_trajectory(
+  traj_data,
+  subject = "subject",
+  time = "visit",
+  category = "grade",
+  palette = "ctcae",
+  fit_labels = TRUE,          # Enable auto-fitting
+  label_size = 4,             # Base size
+  label_min_size = 2,         # Minimum size
+  label_max_size = 6,         # Maximum size
+  title = "Auto-Fit Labels",
+  subtitle = "Labels sized to fit segments, small segments hidden"
+)
+```
+
+### Label Content
+
+Choose what information to display with `show_labels`:
+
+- `"percent"` (default): Show percentage of total
+- `"count"`: Show absolute count
+- `"category"`: Show category name
+- `"none"`: No labels
+
+## Color Palettes
+
+### Built-in Palettes
+
+```{r palettes, fig.alt="Color palette options"}
+# CTCAE colors (standard AE grading)
+sunburst_trajectory(
+  traj_data, subject = "subject", time = "visit", category = "grade",
+  palette = "ctcae",
+  title = "CTCAE Palette"
+)
+```
+
+### Custom Palettes
+
+```{r custom-palette, fig.alt="Custom color palette"}
 custom_colors <- c(
   "0" = "#f7f7f7",
-  "1" = "#d9f0d3", 
-  "2" = "#a6dba0",
-  "3" = "#5aae61",
-  "4" = "#1b7837"
+  "1" = "#ccece6",
+  "2" = "#66c2a4",
+  "3" = "#238b45",
+  "4" = "#00441b"
 )
 
-sunburst_ae(
-  ae_data, "USUBJID", "AVISIT", "AETOXGR",
+sunburst_trajectory(
+  traj_data,
+  subject = "subject",
+  time = "visit",
+  category = "grade",
   palette = custom_colors,
-  title = "Custom Green Gradient"
+  title = "Custom Green Palette"
 )
 ```
 
-### Themes
+## Additional Annotations
 
-Apply the `theme_sunburst()` for fine control:
+### Center Labels
 
-```{r}
-sunburst_ae(ae_data, "USUBJID", "AVISIT", "AETOXGR") +
-  theme_sunburst(
-    base_size = 12,
-    legend_position = "bottom",
-    title_position = "center"
-  ) +
-  labs(title = "Custom Theme Applied")
+Add text to the center of the chart:
+
+```{r center-label, fig.alt="Sunburst with center label"}
+sunburst_trajectory(
+  traj_data,
+  subject = "subject",
+  time = "visit",
+  category = "grade",
+  palette = "ctcae",
+  title = "Study XYZ: AE Trajectories"
+) |>
+  add_center_label("N=80\nPatients", size = 5)
 ```
 
-### Adding a Center Label
+## Tumor Response Example
 
-Use `add_center_label()` to add text to the center:
+The package includes a function for generating tumor response trajectory data:
 
-```{r}
-p <- sunburst_ae(ae_data, "USUBJID", "AVISIT", "AETOXGR",
-                  title = "AE Grade Trajectories")
+```{r tumor-response, fig.alt="Tumor response trajectory"}
+response_data <- create_example_response_trajectory(
+  n_subjects = 60,
+  seed = 789
+)
 
-add_center_label(p, label = "N=20\nPatients", size = 4)
-```
-
-### Controlling Labels
-
-```{r}
-# Show value labels in cells (useful for smaller datasets)
-sunburst_ae(
-  create_example_ae_data(n_patients = 8, seed = 1),
-  subject = "USUBJID",
-  time = "AVISIT",
-  grade = "AETOXGR",
-  show_grade_labels = TRUE,  # Force labels on
-  title = "With Cell Labels"
+sunburst_trajectory(
+  response_data,
+  subject = "subject",
+  time = "visit",
+  category = "response",
+  category_order = c("CR", "PR", "SD", "PD"),
+  palette = c(
+    "CR" = "#1a9850",
+    "PR" = "#91cf60",
+    "SD" = "#d9d9d9",
+    "PD" = "#d73027"
+  ),
+  title = "Tumor Response Trajectories",
+  subtitle = "CR=Complete, PR=Partial, SD=Stable, PD=Progressive"
 )
 ```
 
-## Faceted Sunbursts
+## Comparing Transition Dynamics
 
-For multiple adverse events or subgroups, use faceting:
+Use `transition_tendency` to simulate different levels of category stability:
 
-```{r fig.width=10, fig.height=8}
-# Create data with multiple AE types
-set.seed(42)
-multi_ae <- data.frame(
-  USUBJID = rep(paste0("S", sprintf("%02d", 1:12)), each = 12),
-  AVISIT = rep(rep(c("BL", "W4", "W8", "W12"), each = 3), 12),
-  AETERM = rep(c("Nausea", "Fatigue", "Headache"), 48),
-  AETOXGR = sample(0:3, 144, replace = TRUE, prob = c(0.4, 0.35, 0.2, 0.05))
+```{r transition-dynamics, fig.alt="Transition dynamics comparison"}
+# Stable - subjects tend to stay in same category
+stable_data <- create_example_trajectory_data(
+  n_subjects = 80, transition_tendency = "stable", seed = 111
 )
 
-sunburst_ae_faceted(
-  multi_ae,
-  subject = "USUBJID",
-  time = "AVISIT",
-  grade = "AETOXGR",
-  facet = "AETERM",
-  ncol = 3
+sunburst_trajectory(
+  stable_data, subject = "subject", time = "visit", category = "grade",
+  palette = "ctcae", title = "Stable (70% stay probability)"
 )
 ```
 
-## Working with ggplot2
+In stable charts, you'll see more uniform color bands (subjects staying in the same category). In dynamic charts, there's more color variation as subjects transition between categories.
 
-Since `ggsunburst` returns ggplot2 objects, you can add any ggplot2 components:
+## Integration with ggplot2
 
-```{r}
-sunburst_ae(ae_data, "USUBJID", "AVISIT", "AETOXGR") +
-  labs(
-    title = "Study XYZ-001: Adverse Event Profile",
-    subtitle = "Grade distribution by visit",
-    caption = "Data as of 2025-01-01"
-  ) +
+Since `sunburst_trajectory()` returns a ggplot2 object, you can further customize it:
+
+```{r ggplot-integration, fig.alt="Customized sunburst"}
+sunburst_trajectory(
+  traj_data,
+  subject = "subject",
+  time = "visit",
+  category = "grade",
+  palette = "ctcae",
+  title = "Customized Sunburst"
+) +
   theme(
-    plot.title = element_text(face = "bold", size = 14),
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
     legend.position = "bottom"
-  )
+  ) +
+  labs(caption = "Data source: Simulated clinical trial")
 ```
 
-## Advanced: Building from Components
+## Summary
 
-For maximum control, you can use the component functions directly:
+The ggsunburst package provides:
 
-```{r}
-# Prepare data manually
-prepared <- prepare_sunburst_data(
-  ae_data,
-  segments = "USUBJID",
-  rings = "AVISIT",
-  fill = "AETOXGR",
-  segment_order = "alphabetical",
-  inner_radius = 0.3,
-  ring_gap = 0.08
-)
+- **Trajectory visualization**: See how subjects flow between categories over time
+- **Flexible missing data handling**: Choose how to display dropouts and incomplete data
+- **Label customization**: Control orientation, size, and content of labels
+- **Color palettes**: Built-in and custom color schemes
+- **ggplot2 integration**: Full compatibility with ggplot2 customization
 
-# Build plot manually
-ggplot(prepared) +
-  geom_sunburst_rect() +
-  coord_polar(theta = "x", start = 0) +
-  scale_fill_ctcae() +
-  theme_void() +
-  ylim(0, max(prepared$ymax) * 1.2)
-```
-
-## Best Practices
-
-1. **Number of subjects**: Sunbursts work best with 10-50 subjects. More than that makes individual segments hard to read.
-
-2. **Number of time points**: 3-8 rings are ideal. Too many rings make the inner rings very small.
-
-3. **Sorting**: Sort by maximum grade to group patients with similar severity profiles together.
-
-4. **Labels**: Use segment labels (patient IDs) for smaller datasets. For larger datasets, consider suppressing them.
-
-5. **Colors**: The CTCAE color scale is designed to be intuitive (green = mild, red = severe) and colorblind-friendly.
-
-## Session Info
-
-```{r}
-sessionInfo()
-```
+For more details, see the function documentation with `?sunburst_trajectory`.

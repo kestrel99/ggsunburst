@@ -1,12 +1,11 @@
 #' ggsunburst: Sunburst Charts for Hierarchical and Longitudinal Data
 #'
 #' @description
-#' Create sunburst (multilevel pie) charts using the ggplot2 framework.
+#' Create sunburst charts using the ggplot2 framework.
 #' Sunburst charts display hierarchical data as concentric rings, where each
 #' ring represents a level in the hierarchy. This package is particularly
 #' suited for visualizing changes in adverse event grades over time at the
 #' individual patient level, but can be used for any hierarchical or
-
 #' longitudinal categorical data.
 #'
 #' @section Main Functions:
